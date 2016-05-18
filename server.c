@@ -13,313 +13,237 @@
 
 #include "game.c"
 
-#define BUFFER_SZIE 1024
-
-//*********************************************************************//
-void problem(char *message); 
-int create_server(int port); 
-//*********************************************************************//
+#define uzenet_size 100
+//********************************
+int create_server(int port);
+void problem(char *message);
+//********************************
 
 int main(int argc, char **argv) {
   
   if (argc != 2)
-    problem("Run like this: ./server port_number\n");
+  problem("Így futtasd: ./server port_number\n");
 
   printf("Server is creating...\n");
-  struct sockaddr_in client;
 
-  char buffer[BUFFER_SZIE];
+  const char welcome[] = {"Üdvözöllek"};
+  const char active[] = {"Active"};
+  const char passive[] = {"Passive"};
+  const char invalid_step [] = {"Hibás lépés"};
+  const char wrong_answer[] = {"Rossz válasz"};
+  const char loose[] =   {"Vereség :("};
+  const char winner[] = {"Győzelem :)"};
+  const char draw[] =  {"Döntetlen :|"};
 
-  const char welcome[] = {"welcome"};
-  const char active[] = {"active"};
-  const char passive[] = {"passive"};
-  const char invalid_step [] = {"invalid_step"};
-  const char wrong_answer[] = {"wrong_answer"};
-  const char loose[] = {"loose"};
-  const char winner[] = {"winner"};
-  const char draw[] = {"draw"};
 
   int server_port = atoi(argv[1]);
   
-  int sock = create_server(server_port); // socket létrehozása + bind + listen "akadály"
-  printf("Server is runnig...\n\n");
+  int sock = create_server(server_port);
+  printf("Server is running...\n\n");
 
-  printf("Waiting for the connection(2 players)...\n");
-  int client_length = sizeof(client);
-
-  int first_stream = 0; // Első játékoshoz az elfogadott kapcsolat kezelőszáma --> accept függvény visszatérési értéke
-  first_stream = accept(sock, (struct sockaddr *) &client, &client_length); // Kapcsolódás(kliens) elfogadása az adott socketen 
-  if (first_stream == -1)
-    problem("ERROR: Accept");  
-  printf("1. player connected!\n");
+  struct sockaddr_in clientAddr;
+  int sin_size = sizeof(struct sockaddr_in);
+  int clientFD_1;
+  int clientFD_2;
   
-  if (send(first_stream, welcome, sizeof(welcome), 0) == -1)
-    problem("ERROR: Send");
+
+  printf("Várakozás a játékosokra...\n");
+  clientFD_1 = accept(sock, (struct sockaddr *)&clientAddr, &sin_size);
+  if(clientFD_1 == -1){problem("Error: In Player 1");}
+
+  printf("Várakozás a második játékosra...\n");
+  clientFD_2 = accept(sock, (struct sockaddr *)&clientAddr, &sin_size);
+  if(clientFD_2 == -1){problem("Error: In Player 2");}  
+  printf("Játék indulásra kész!\n");
+
+  char uzenet[uzenet_size]; //szerverkudli
+  char valasz[uzenet_size]; //clientkuldi
+
+  send(clientFD_1, welcome, sizeof(welcome) , 0);
+  send(clientFD_2, welcome, sizeof(welcome) , 0);
   
-  int second_stream = 0; // Második játékoshoz az elfogadott kapcsolat kezelőszáma
-  second_stream = accept(sock, (struct sockaddr *) &client, &client_length);
-  if (second_stream == -1)
-    problem("ERROR: Accept");
-  printf("2. player connected!\n");
+  int lepes = 3; //lépésszámláló 1.->páros 2.->páratlan
+  int pasz_1 = 0;
+  int pasz_2 = 0;
+  int vege = 2;
+  init_field();
   
-  printf("Start!\n\n\n");
-  
-  if (send(second_stream, welcome, sizeof(welcome), 0) == -1)
-    problem("ERROR: Send");
-
-  init_board(); // Pálya létrehozása
-
-  char result[5]; // Eredmény
-
-  int pass_senzor_1 = 0; // 1. játékos passzolt-e
-  int pass_senzor_2 = 0; // 2. játékos passzolt-e
-  int miss = 0; // Változik ha vki passzolt
-  
-  int end = 0; //0-1-2 értékek
-  int i = 4; // "Lépésszámláló": 1.játékos--> páros érték|2.játékos--> páratlan érték
-  
-  while(1) {
-    convert(); // pálya konvertálása 1D-s tömbbe
-    miss = 0;
-
-    if (pass_senzor_1 && pass_senzor_2) // Ha mindkettő passzolt
-      break;
-
-    if (i % 2 == 0) { // 1.játékos
-
-      send(second_stream, passive, sizeof(passive), 0); // 2.játékos passiv
-      send(first_stream, contener, sizeof(contener), 0); // 1.játékos field
-      recv(first_stream, buffer, BUFFER_SZIE, 0);
-
-      if (home_points >= 10 && away_points >= 10) // Mindkét játékos kétjegyű ponttal rendelkezik
-        sprintf(result, "%d,%d", home_points, away_points);
-      else if (home_points < 10 && away_points < 10) // Mindkét játékos egyjegyű ponttal rendelkezik
-        sprintf(result, "0%d,0%d", home_points, away_points);
-      else if (home_points < 10 && away_points >= 10) // 1.játékos egyjegyű, 2.játékos 2 jegyű ponttal rendelkezik
-        sprintf(result, "0%d,%d", home_points, away_points);
-      else if (home_points >= 10 && away_points < 10) // 1.játékos kétjegyű, 2.játékos 1 jegyű ponttal rendelkezik
-        sprintf(result, "%d,0%d", home_points, away_points);
+  field_maker(contener);
 
 
-      send(first_stream, result, sizeof(result), 0); // 1.játékos állást
-      recv(first_stream, buffer, BUFFER_SZIE, 0);
-
-
-      send(first_stream, active, sizeof(active), 0); // Majd active
-      recv(first_stream, buffer, BUFFER_SZIE, 0);
-
-      while (1) {
-        if ((strncmp (buffer, "pass", 4) == 0) && buffer[4] == '\0') { 
-          printf("First player sent: pass\n");
-          pass_senzor_1 = 1; // 1-es player passzolt
-          miss = next_round(); // miss értéke 1-es
+     while(1)
+    {
+        convert();
+        if(pasz_1 == 1 && pasz_2 == 1)
+        {
           break;
         }
-        pass_senzor_1 = 0; // Ha nem passzolt a másik, akkor visszaállitjuk "false"-ra
+        if(lepes % 2 == 1){ //1.es
+          send(clientFD_2, passive, sizeof(passive), 0); //passivolom
+          
+          field_maker(contener);
+          send(clientFD_1, contener, sizeof(contener) , 0); // Pályát megkapja az 1.játékos
+          recv(clientFD_1, valasz, uzenet_size, 0);
 
-        if ((strncmp(buffer, "give_up", 7) == 0) && buffer[7] == '\0') { // Ha feladta:
-          printf("First player sent: give_up\n");
-          end = 1; // 1.player adta fel
-          break;
-	  
-        } else if (buffer[1] == ',' && buffer[2] != '\0' && buffer[3] == '\0') { // Ha megfelelő formátumban küldte a két párt:
-          int line = buffer[0] - '0'; //átalakítás számmá
-          int column = buffer[2] - '0'; //átalakítás számmá
- 
-          --line; // 0...7
-          --column; // 0...7
+          send(clientFD_1, active, sizeof(active), 0);              
+          recv(clientFD_1, valasz, uzenet_size, 0);
+          while(1)
+          {
+            if ((strncmp (valasz, "pasz", 4) == 0) && valasz[4] == '\0') { // Ha passzolt:
 
-          if (line < 0 || column < 0 || line > 7 || column > 7 || board[line][column] != ':') { // Ha nem a pályán lévő mezőt választotta vagy ott már van bábú
-	    printf("1. player has an invalid step\n");
-            send(first_stream, invalid_step, sizeof(invalid_step), 0);
-            recv(first_stream, buffer, BUFFER_SZIE, 0);
-            continue; //jump
+              printf("First player sent: pass\n");
+              pasz_1 = 1; // 1-es player passzolt
+              lepes++;
+              break;
+            }
+            if ((strncmp (valasz, "give_up", 7) == 0) && valasz[7] == '\0') { // Ha feladta
+
+               printf("First player sent: give_up\n");
+               send(clientFD_2, winner, sizeof(winner) , 0);
+               send(clientFD_1, loose, sizeof(loose), 0);
+               vege = 1;
+              break;
+            }
+            else if(valasz[1] == ',' && valasz[2] != '\0' && valasz[3] == '\0'){
+              int sor = valasz[0] - '0'; //számmá alakítás
+              int oszlop = valasz[2] - '0';//számmá alakítás koord
+              --sor; //0...7
+              --oszlop; //0...7
+            
+            if (line < 0 || column < 0 || line > 7 || column > 7 || field[line][column] != ':') {
+            printf("1. player has an invalid step\n");
+            send(clientFD_1, invalid_step, sizeof(invalid_step), 0);
+            recv(clientFD_1, valasz, uzenet_size, 0);
+            continue;
+            }
+            set_data(line, column);
+            int sign = insert();
+
+                if (sign) {
+                   step = 0; 
+                  lepes++;
+                  next_round();
+                  break;
+                } else {
+                  printf("1. player has an invalid step\n");
+                  send(clientFD_1, invalid_step, sizeof(invalid_step), 0);
+                  recv(clientFD_1, valasz, uzenet_size, 0);
+                }
+                } else {
+                 printf("1. player has a wrong answer\n");
+                 send(clientFD_1, wrong_answer, sizeof(wrong_answer), 0);
+                 recv(clientFD_1, valasz, uzenet_size, 0);
+                }            
           }
 
+        }
+        else  //2.es
+        {
+          send(clientFD_1, passive, sizeof(passive), 0); //passivolom
+          
+          field_maker(contener);
+          send(clientFD_2, contener, sizeof(contener) , 0); // Pályát megkapja az 1.játékos
+          recv(clientFD_2, valasz, uzenet_size, 0);
 
-          set_data(line, column); // line, column beállítása
-          int sign = insert(); // Érvényes lépés volt e? 
+          send(clientFD_2, active, sizeof(active), 0);              
+          recv(clientFD_2, valasz, uzenet_size, 0);
 
-          if (sign) { // Ha igen
-            step = 0; // akkor nullázzuk
-            next_round(); // swap
+          while(1)
+          {
+            if ((strncmp (valasz, "pasz", 4) == 0) && valasz[4] == '\0') { // Ha passzolt:
+
+              printf("Secound player sent: pass\n");
+              pasz_2 = 1; // 1-es player passzolt
+              lepes++;
+              break;
+            }
+            if ((strncmp (valasz, "give_up", 7) == 0) && valasz[7] == '\0') { // Ha feladta
+
+               printf("Secound player sent: give_up\n");
+               send(clientFD_1, winner, sizeof(winner) , 0);
+               send(clientFD_2, loose, sizeof(loose), 0);
+               vege = 1;
+              break;
+            }
+            else if(valasz[1] == ',' && valasz[2] != '\0' && valasz[3] == '\0'){
+              int sor = valasz[0] - '0'; //számmá alakítás
+              int oszlop = valasz[2] - '0';//számmá alakítás koord
+              --sor; //0...7
+              --oszlop; //0...7
+            
+            if (line < 0 || column < 0 || line > 7 || column > 7 || field[line][column] != ':') {
+            printf("1. player has an invalid step\n");
+            send(clientFD_2, invalid_step, sizeof(invalid_step), 0);
+            recv(clientFD_2, valasz, uzenet_size, 0);
+            continue;
+            }
+            set_data(line, column);
+            int sign = insert();
+
+                if (sign) {
+                   step = 0; 
+                  lepes++;
+                  next_round();
+                  break;
+                } else {
+                  printf("2. player has an invalid step\n");
+                  send(clientFD_2, invalid_step, sizeof(invalid_step), 0);
+                  recv(clientFD_2, valasz, uzenet_size, 0);
+                }
+
+                } else {
+                 printf("2. player has a wrong answer\n");
+                 send(clientFD_2, wrong_answer, sizeof(wrong_answer), 0);
+                 recv(clientFD_2, valasz, uzenet_size, 0);
+                 }
+             if(vege == 1){  
+              close(clientFD_1);
+              close(clientFD_2);
+              close(sock);
+              return 0;
+              }
+          }          
+        }
+        if (vege == 1)
+          {
             break;
-          } else {
-	    printf("1. player has an invalid step\n");
-            send(first_stream, invalid_step, sizeof(invalid_step), 0); // Ha nem sikeres a lépésünk
-            recv(first_stream, buffer, BUFFER_SZIE, 0);
-          }
-        } else { // Ha nem megfelelő a formátum: x,y
-	  printf("1. player has a wrong wrong answer\n");
-          send(first_stream, wrong_answer, sizeof(wrong_answer), 0); 
-          recv(first_stream, buffer, BUFFER_SZIE, 0);
-        }
-      }
+          }  
     }
-
-
-// Ha a 2.játékosunk jön:
-    else { 
-      send(first_stream, passive, sizeof(passive), 0); // 1.játékos passiv
-      send(second_stream, contener, sizeof(contener), 0); // 2.játékos field
-      recv(second_stream, buffer, BUFFER_SZIE, 0);
-
-      if(home_points >= 10 && away_points >= 10)
-        sprintf(result, "%d,%d", home_points, away_points);
-      else if(home_points < 10 && away_points < 10)
-        sprintf(result, "0%d,0%d", home_points, away_points);
-      else if(home_points < 10 && away_points >= 10)
-        sprintf(result, "0%d,%d", home_points, away_points);
-      else if(home_points >= 10 && away_points < 10)
-        sprintf(result, "%d,0%d", home_points, away_points);
-
-      
-      send(second_stream, result, sizeof(result), 0);
-      recv(second_stream, buffer, BUFFER_SZIE, 0);
-
-
-      send(second_stream, active, sizeof(active), 0);
-      recv(second_stream, buffer, BUFFER_SZIE, 0);
-
-      while (1) {
-        if ((strncmp (buffer, "pass", 4) == 0) && buffer[4] == '\0') {
-          printf("Second player sent: pass\n");
-          pass_senzor_2 = 1; // 2-es player passzolt
-          miss = next_round();
-          break;
-        }
-        pass_senzor_2 = 0;
-        if ((strncmp(buffer, "give_up", 7) == 0) && buffer[7] == '\0') {
-          printf("Second player sent: give_up\n");
-          end = 2;
-          break;
-        } else if (buffer[1] == ',' && buffer[2] != '\0' && buffer[3] == '\0') {
-          int line = buffer[0] - '0'; //átalakítás számmá
-          int column = buffer[2] - '0'; //átalakítás számmá
-          --line; //0...7
-          --column; //0...7
-
-          if (line < 0 || column < 0 || line > 7 || column > 7 || board[line][column] != ':') {
-	    printf("2. player has an invalid step\n");
-            send(second_stream, invalid_step, sizeof(invalid_step), 0);
-            recv(second_stream, buffer, BUFFER_SZIE, 0);
-	    continue;
-          }
-
-          set_data(line,column);
-          int sign = insert();
-
-          if (sign) {
-            step = 0;
-            next_round();
-            break;
-          } else {
-	    printf("2. player has an invalid step\n");
-            send(second_stream, invalid_step, sizeof(invalid_step), 0);
-            recv(second_stream, buffer, BUFFER_SZIE, 0);
-          }
-        } else {
-	  printf("2. player has a wrong answer\n");
-          send(second_stream, wrong_answer, sizeof(wrong_answer), 0);
-          recv(second_stream, buffer, BUFFER_SZIE, 0);
-        }
-      } 
-
-    }
-
-
-    if (!miss) { // Ha nem volt passz
-      if (i % 2 == 0) // 1.játékos rakta le a bábút
-        ++home_points;
-      else // 2.játékos tette le a bábút
-        ++away_points;
-    }
-
-
-    if (end) // Ha vki feladta
-      break;
-
-    
-    printf("\nRound: %d\n", ++i);
-    printf("Line: %d & Column: %d\n", line + 1, column + 1);
-    printf("Home points: %d\n", home_points);
-    printf("Away points: %d\n\n\n", away_points);
-    
-    if ((home_points + away_points) == 64) // Ha betelt a tábla
-      break;
-
-  }
-  
-  int who_win = 0;
-
-  if (end == 1) { // Ha az 1.játékos adta fel
-    send(first_stream, loose, sizeof(loose), 0);
-    send(second_stream, winner, sizeof(winner),0);
-    who_win = 2;
-    
-  } else if (end == 2) { // Ha a 2.játékos adta fel
-    send(second_stream, loose, sizeof(loose), 0);
-    send(first_stream, winner, sizeof(winner),0);
-    who_win = 1;
-    
-  } else if (home_points > away_points) { // Ha 1.játékos pontja több
-    send(second_stream, loose, sizeof(loose), 0);
-    send(first_stream, winner, sizeof(winner),0);
-    who_win = 1;
-    
-  } else if (home_points < away_points) { // Ha 2.játékos pontja több
-    send(first_stream, loose, sizeof(loose), 0);
-    send(second_stream, winner, sizeof(winner),0);
-    who_win = 2;
-    
-  } else if (home_points == away_points) { // Ha egyenlő
-    send(first_stream, draw, sizeof(draw), 0);
-    send(second_stream, draw, sizeof(draw),0);
-  }
-   
-
-  close(first_stream); // Zárjuk a kapcsolatot
-  close(second_stream); // Zárjuk a kapcsolatot
-  close(sock); // Zárjuk a szervert
-  
-  switch(who_win) {
-    case 0: printf("Result: draw!\n"); break;
-    case 1: printf("Result: 1. player won!\n"); break;
-    case 2: printf("Result: 2. player won!\n"); break;
-    default: printf("Impossible!\n"); break;
-  }
-  printf("Server shutdown...\n");
-  return 0;
+    close(clientFD_1);
+    close(clientFD_2);
+    close(sock);
+    return 0;
 }
-
-//*********************************************************************//
 void problem(char *message) {
-  fprintf(stderr,"%s\n", message);
-  exit(EXIT_FAILURE);
+  printf("%s\n", message);
+  exit(EXIT_FAILURE); //hogy tökéletesen portolható legyen, így jobb mint exit(0), ofcoursestackoverflow
 }
-//*********************************************************************//
+create_server(int port) 
+{
+	int serverFD;
+	serverFD = socket(AF_INET, SOCK_STREAM, 0);//sock_stream-> tcp protokoll
 
-int create_server(int port) {
+	if (serverFD == -1)
+    problem("Error: Socket");
 
-  int server_number = socket(AF_INET, SOCK_STREAM, 0); //sock_stream-> tcp protokoll
-  if (server_number == -1)
-    problem("ERROR: Socket");
+	struct sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(port); //bájtsorrendé át kell alakítani
 
-  // Szerver adatai
-  struct sockaddr_in server;
-  server.sin_family = AF_INET;
-  server.sin_port = htons(port); //gazdagép -> hálózati, host to network short
-  inet_aton("127.0.0.01", &(server.sin_addr)); //ipv4, decimal -> 32bitnetwork byte
-  memset(&(server.sin_zero), '\0', 8); // a struktúra többi részének kinullázása
-  
-  int yes=1;
-  setsockopt(server_number,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int));
+    inet_aton("127.0.0.01", &(serverAddr.sin_addr)); //elméletileg ugyanazt csinálja mint az először
+    memset(&(serverAddr.sin_zero),'\0',8); // a struktúra többi részének kinullázása
 
-  if (bind(server_number,(struct sockaddr *)&server, sizeof(server)) == -1) // Socket hozzárendelése a portszámhoz
-    problem("ERROR: Bind");
+    int yes=1;
+    setsockopt(serverFD,SOL_SOCKET,SO_REUSEADDR,&yes,sizeof(int)); //újrahasználja a címet
+    //problem("Error: SetSockopt");
 
-  if (listen(server_number, 3) == -1) // Hallgatózás a socketen
-    problem("ERROR: Listen");
+    if (bind(serverFD, (struct sockaddr *)&serverAddr, sizeof(struct sockaddr)) == -1) //típuskényszeríteni kell a serverAddr-ezt
+    problem("Error: Bind"); //socket hozzárendelése a hálózati címhez
 
-  return server_number;
+  	if (listen(serverFD, 10) == -1) // Hallgatózás a socketen
+    problem("Error: Listen");
+
+	listen(serverFD, 10); //ellenőrizgetni az értékeket nem szabad kihagyni beadandóban
+
+  return serverFD;
 }
